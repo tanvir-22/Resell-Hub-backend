@@ -97,8 +97,12 @@ async function run() {
     app.get("/api/getwishlist", async (req, res) => {
       try {
         const { email } = req.query;
-        const wishlist = await wishlistCollection.find({ userEmail: email }).toArray();
-        res.json(wishlist.map(item => ({ ...item, _id: item._id.toString() })));
+        const wishlist = await wishlistCollection
+          .find({ userEmail: email })
+          .toArray();
+        res.json(
+          wishlist.map((item) => ({ ...item, _id: item._id.toString() })),
+        );
       } catch (err) {
         res.status(500).json({ message: err.message });
       }
@@ -112,14 +116,18 @@ async function run() {
           productId: data.productId,
         });
         if (existing) {
-          return res.status(409).json({ ...existing, _id: existing._id.toString() });
+          return res
+            .status(409)
+            .json({ ...existing, _id: existing._id.toString() });
         }
         const result = await wishlistCollection.insertOne({
           ...data,
           userEmail,
           addedAt: new Date(),
         });
-        res.status(201).json({ _id: result.insertedId.toString(), ...data, userEmail });
+        res
+          .status(201)
+          .json({ _id: result.insertedId.toString(), ...data, userEmail });
       } catch (err) {
         res.status(500).json({ message: err.message });
       }
@@ -187,6 +195,102 @@ async function run() {
 
       const result = await productCollection.insertOne(product);
       res.status(201).json({ insertedId: result.insertedId, ...product });
+    });
+
+    const orderCollection = database.collection("orders");
+    const paymentCollection = database.collection("payments");
+
+    app.post("/api/createorders", async (req, res) => {
+      try {
+        const { buyerInfo, items } = req.body;
+        const orders = items.map((item) => ({
+          productId: item.productId,
+          title: item.title,
+          price: item.price,
+          quantity: item.quantity,
+          buyerInfo,
+          sellerInfo: item.sellerInfo,
+          orderStatus: "Processing",
+          paymentStatus: "pending",
+          createdAt: new Date(),
+        }));
+        const result = await orderCollection.insertMany(orders);
+        const orderIds = Object.values(result.insertedIds).map((id) =>
+          id.toString(),
+        );
+        res.status(201).json({ orderIds });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.post("/api/createpayment", async (req, res) => {
+      try {
+        const { orderIds, transactionId, amount, paymentStatus } = req.body;
+        const objectIds = orderIds.map((id) => new objectId(id));
+
+        const payments = orderIds.map((orderId) => ({
+          orderId,
+          transactionId,
+          amount,
+          paymentStatus,
+          createdAt: new Date(),
+        }));
+        await paymentCollection.insertMany(payments);
+
+        await orderCollection.updateMany(
+          { _id: { $in: objectIds } },
+          { $set: { paymentStatus, updatedAt: new Date() } },
+        );
+
+        res.status(201).json({ success: true });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.get("/api/getorders", async (req, res) => {
+      try {
+        const { email, role } = req.query;
+        const query = {};
+        if (email && role === "seller") query["sellerInfo.email"] = email;
+        else if (email) query["buyerInfo.email"] = email;
+        const orders = await orderCollection.find(query).toArray();
+        res.json(orders.map((o) => ({ ...o, _id: o._id.toString() })));
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.patch("/api/updateorder/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await orderCollection.findOneAndUpdate(
+          { _id: new objectId(id) },
+          { $set: { ...req.body, updatedAt: new Date() } },
+          { returnDocument: "after" },
+        );
+        if (!result) return res.status(404).json({ message: "Order not found" });
+        res.json({ ...result, _id: result._id.toString() });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.get("/api/getpayments", async (req, res) => {
+      try {
+        const { email } = req.query;
+        const orders = await orderCollection
+          .find({ "buyerInfo.email": email }, { projection: { _id: 1 } })
+          .toArray();
+        const orderIds = orders.map((o) => o._id.toString());
+        const payments = await paymentCollection
+          .find({ orderId: { $in: orderIds } })
+          .toArray();
+        res.json(payments.map((p) => ({ ...p, _id: p._id.toString() })));
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
     });
 
     // Send a ping to confirm a successful connection
