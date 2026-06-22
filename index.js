@@ -92,6 +92,54 @@ async function run() {
       res.json(result);
     });
 
+    const wishlistCollection = database.collection("wishlists");
+
+    app.get("/api/getwishlist", async (req, res) => {
+      try {
+        const { email } = req.query;
+        const wishlist = await wishlistCollection.find({ userEmail: email }).toArray();
+        res.json(wishlist.map(item => ({ ...item, _id: item._id.toString() })));
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.post("/api/addtowishlist", async (req, res) => {
+      try {
+        const { userEmail, ...data } = req.body;
+        const existing = await wishlistCollection.findOne({
+          userEmail,
+          productId: data.productId,
+        });
+        if (existing) {
+          return res.status(409).json({ ...existing, _id: existing._id.toString() });
+        }
+        const result = await wishlistCollection.insertOne({
+          ...data,
+          userEmail,
+          addedAt: new Date(),
+        });
+        res.status(201).json({ _id: result.insertedId.toString(), ...data, userEmail });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.delete("/api/deletewishlist/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await wishlistCollection.deleteOne({
+          _id: new objectId(id),
+        });
+        if (result.deletedCount === 0) {
+          return res.status(404).json({ message: "Wishlist item not found" });
+        }
+        res.json({ message: "Removed from wishlist" });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
     app.delete("/api/deleteproduct/:id", async (req, res) => {
       const id = req.params.id;
       const result = await productCollection.deleteOne({
