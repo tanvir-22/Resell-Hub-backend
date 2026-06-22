@@ -45,6 +45,7 @@ async function run() {
 
     app.get("/api/products", async (req, res) => {
       const products = await productCollection.find({}).toArray();
+      console.log(process.env.NEXT_URL);
       res.json(products);
     });
     app.get("/api/products/:id", async (req, res) => {
@@ -53,6 +54,53 @@ async function run() {
         _id: new objectId(id),
       });
       res.json(product);
+    });
+
+    app.patch("/api/updateproduct/:id", async (req, res) => {
+      const id = req.params.id;
+      const {
+        title,
+        description,
+        category,
+        condition,
+        price,
+        stock,
+        phone,
+        images,
+      } = req.body;
+      console.log("HIT updateproduct, id:", req.params.id, "body:", req.body);
+      const updateFields = {};
+      if (title !== undefined) updateFields.title = title;
+      if (description !== undefined) updateFields.description = description;
+      if (category !== undefined) updateFields.category = category;
+      if (condition !== undefined) updateFields.condition = condition;
+      if (price !== undefined) updateFields.price = Number(price);
+      if (stock !== undefined) updateFields.stock = Number(stock);
+      if (phone !== undefined) updateFields.phone = phone;
+      if (images !== undefined) updateFields.images = images;
+      updateFields.updatedAt = new Date();
+
+      const result = await productCollection.findOneAndUpdate(
+        { _id: new objectId(id) },
+        { $set: updateFields },
+        { returnDocument: "after" },
+      );
+
+      if (!result) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      res.json(result);
+    });
+
+    app.delete("/api/deleteproduct/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await productCollection.deleteOne({
+        _id: new objectId(id),
+      });
+      if (result.deletedCount === 0) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      res.json({ message: "Product deleted successfully" });
     });
 
     app.post("/api/createproduct", async (req, res) => {
