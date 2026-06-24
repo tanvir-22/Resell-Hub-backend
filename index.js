@@ -13,7 +13,7 @@ app.get("/", (req, res) => {
 });
 
 const JWKS = createRemoteJWKSet(
-  new URL(`${process.env.NEXTJS_URL}/api/auth/jwks`)
+  new URL(`${process.env.NEXTJS_URL}/api/auth/jwks`),
 );
 
 const verifyToken = async (req, res, next) => {
@@ -43,7 +43,7 @@ async function run() {
     const productCollection = database.collection("products");
 
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     app.get("/api/products", async (req, res) => {
       const { status } = req.query;
@@ -360,12 +360,15 @@ async function run() {
         const email = req.user.email;
 
         const products = await productCollection
-          .find({ "sellerInfo.email": email }, { projection: { _id: 1, title: 1 } })
+          .find(
+            { "sellerInfo.email": email },
+            { projection: { _id: 1, title: 1 } },
+          )
           .toArray();
 
         const productIds = products.map((p) => p._id.toString());
         const titleMap = Object.fromEntries(
-          products.map((p) => [p._id.toString(), p.title])
+          products.map((p) => [p._id.toString(), p.title]),
         );
 
         const reviews = await reviewCollection
@@ -378,7 +381,7 @@ async function run() {
             ...r,
             _id: r._id.toString(),
             productTitle: titleMap[r.productId] || "",
-          }))
+          })),
         );
       } catch (err) {
         res.status(500).json({ message: err.message });
@@ -390,9 +393,13 @@ async function run() {
     // ── Reports: Submit ───────────────────────────────────────────────────────
     app.post("/api/reports", async (req, res) => {
       try {
-        const { productId, productTitle, reporterInfo, reason, details } = req.body;
+        const { productId, productTitle, reporterInfo, reason, details } =
+          req.body;
         const doc = {
-          productId, productTitle, reporterInfo, reason,
+          productId,
+          productTitle,
+          reporterInfo,
+          reason,
           details: details || "",
           status: "pending",
           createdAt: new Date(),
@@ -400,7 +407,7 @@ async function run() {
         const result = await reportCollection.insertOne(doc);
         await productCollection.updateOne(
           { _id: new objectId(productId) },
-          { $set: { reported: true } }
+          { $set: { reported: true } },
         );
         res.status(201).json({ _id: result.insertedId.toString(), ...doc });
       } catch (err) {
@@ -416,7 +423,9 @@ async function run() {
         const { status } = req.query;
         const query = status && status !== "all" ? { status } : {};
         const reports = await reportCollection
-          .find(query).sort({ createdAt: -1 }).toArray();
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
         res.json(reports.map((r) => ({ ...r, _id: r._id.toString() })));
       } catch (err) {
         res.status(500).json({ message: err.message });
@@ -429,9 +438,10 @@ async function run() {
         const result = await reportCollection.findOneAndUpdate(
           { _id: new objectId(req.params.id) },
           { $set: { ...req.body, updatedAt: new Date() } },
-          { returnDocument: "after" }
+          { returnDocument: "after" },
         );
-        if (!result) return res.status(404).json({ message: "Report not found" });
+        if (!result)
+          return res.status(404).json({ message: "Report not found" });
         res.json({ ...result, _id: result._id.toString() });
       } catch (err) {
         res.status(500).json({ message: err.message });
@@ -794,10 +804,6 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!",
-    );
   } finally {
   }
 }
