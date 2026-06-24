@@ -3,7 +3,7 @@ const app = express();
 const cors = require("cors");
 objectId = require("mongodb").ObjectId;
 const { MongoClient, ServerApiVersion } = require("mongodb");
-const { jwtVerify } = require("jose-cjs");
+const { jwtVerify, createRemoteJWKSet } = require("jose-cjs");
 require("dotenv").config();
 const port = process.env.PORT;
 app.use(express.json());
@@ -12,21 +12,23 @@ app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-// const verifyToken = async (req, res, next) => {
-//   const authHeader = req.headers.authorization;
-//   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-//     return res.status(401).json({ message: "Unauthorized" });
-//   }
-//   const token = authHeader.split(" ")[1];
-//   try {
-//     const secret = new TextEncoder().encode(process.env.JWT_SECRET);
-//     const { payload } = await jwtVerify(token, secret);
-//     req.session = { user: payload };
-//     next();
-//   } catch {
-//     return res.status(401).json({ message: "Invalid token" });
-//   }
-// };
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.NEXTJS_URL}/api/auth/jwks`)
+);
+
+const verifyToken = async (req, res, next) => {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith("Bearer ")) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  try {
+    const { payload } = await jwtVerify(auth.slice(7), JWKS);
+    req.user = payload; // { id, email, name, role }
+    next();
+  } catch {
+    res.status(401).json({ message: "Invalid or expired token" });
+  }
+};
 
 const client = new MongoClient(process.env.MONGODB_URI, {
   serverApi: {
@@ -59,7 +61,7 @@ async function run() {
       res.json(product);
     });
 
-    app.patch("/api/updateproduct/:id", async (req, res) => {
+    app.patch("/api/updateproduct/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const {
         title,
@@ -97,9 +99,9 @@ async function run() {
 
     const wishlistCollection = database.collection("wishlists");
 
-    app.get("/api/getwishlist", async (req, res) => {
+    app.get("/api/getwishlist", verifyToken, async (req, res) => {
       try {
-        const { email } = req.query;
+        const email = req.user.email;
         const wishlist = await wishlistCollection
           .find({ userEmail: email })
           .toArray();
@@ -111,7 +113,7 @@ async function run() {
       }
     });
 
-    app.post("/api/addtowishlist", async (req, res) => {
+    app.post("/api/addtowishlist", verifyToken, async (req, res) => {
       try {
         const { userEmail, ...data } = req.body;
         const existing = await wishlistCollection.findOne({
@@ -136,7 +138,7 @@ async function run() {
       }
     });
 
-    app.delete("/api/deletewishlist/:id", async (req, res) => {
+    app.delete("/api/deletewishlist/:id", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
         const result = await wishlistCollection.deleteOne({
@@ -151,7 +153,7 @@ async function run() {
       }
     });
 
-    app.delete("/api/deleteproduct/:id", async (req, res) => {
+    app.delete("/api/deleteproduct/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const result = await productCollection.deleteOne({
         _id: new objectId(id),
@@ -162,7 +164,7 @@ async function run() {
       res.json({ message: "Product deleted successfully" });
     });
 
-    app.post("/api/createproduct", async (req, res) => {
+    app.post("/api/createproduct", verifyToken, async (req, res) => {
       const {
         title,
         description,
@@ -173,7 +175,6 @@ async function run() {
         phone,
         images,
       } = req.body;
-      const { user } = req.body;
 
       const product = {
         title,
@@ -185,10 +186,10 @@ async function run() {
         phone,
         images,
         sellerInfo: {
-          userId: user._id,
-          name: user.name,
-          email: user.email,
-          phone: phone || user.phone,
+          userId: req.user.id,
+          name: req.user.name,
+          email: req.user.email,
+          phone,
         },
         status: "pending",
         reported: false,
@@ -203,7 +204,7 @@ async function run() {
     const orderCollection = database.collection("orders");
     const paymentCollection = database.collection("payments");
 
-    app.post("/api/createorders", async (req, res) => {
+    app.post("/api/createorders", verifyToken, async (req, res) => {
       try {
         const { buyerInfo, items } = req.body;
         const orders = items.map((item) => ({
@@ -227,7 +228,7 @@ async function run() {
       }
     });
 
-    app.post("/api/createpayment", async (req, res) => {
+    app.post("/api/createpayment", verifyToken, async (req, res) => {
       try {
         const { orderIds, transactionId, amount, paymentStatus } = req.body;
         const objectIds = orderIds.map((id) => new objectId(id));
@@ -265,9 +266,9 @@ async function run() {
       }
     });
 
-    app.get("/api/getorders", async (req, res) => {
+    app.get("/api/getorders", verifyToken, async (req, res) => {
       try {
-        const { email, role } = req.query;
+        const { email, role } = req.user;
         const query = {};
         if (email && role === "seller") query["sellerInfo.email"] = email;
         else if (email) query["buyerInfo.email"] = email;
@@ -278,7 +279,7 @@ async function run() {
       }
     });
 
-    app.patch("/api/updateorder/:id", async (req, res) => {
+    app.patch("/api/updateorder/:id", verifyToken, async (req, res) => {
       try {
         const id = req.params.id;
         const result = await orderCollection.findOneAndUpdate(
@@ -294,9 +295,9 @@ async function run() {
       }
     });
 
-    app.get("/api/getpayments", async (req, res) => {
+    app.get("/api/getpayments", verifyToken, async (req, res) => {
       try {
-        const { email } = req.query;
+        const email = req.user.email;
         const orders = await orderCollection
           .find({ "buyerInfo.email": email }, { projection: { _id: 1 } })
           .toArray();
@@ -354,10 +355,9 @@ async function run() {
       }
     });
 
-    app.get("/api/seller/reviews", async (req, res) => {
+    app.get("/api/seller/reviews", verifyToken, async (req, res) => {
       try {
-        const { email } = req.query;
-        if (!email) return res.status(400).json({ message: "email is required" });
+        const email = req.user.email;
 
         const products = await productCollection
           .find({ "sellerInfo.email": email }, { projection: { _id: 1, title: 1 } })
@@ -407,6 +407,8 @@ async function run() {
         res.status(500).json({ message: err.message });
       }
     });
+
+    app.use("/api/admin", verifyToken);
 
     // ── Reports: Admin list ───────────────────────────────────────────────────
     app.get("/api/admin/reports", async (req, res) => {
@@ -675,18 +677,14 @@ async function run() {
     });
 
     // ── Seller: Products ──────────────────────────────────────────────────────
-    app.get("/api/seller/products", async (req, res) => {
+    app.get("/api/seller/products", verifyToken, async (req, res) => {
       try {
-        const { sellerId, email } = req.query;
-        if (!sellerId && !email)
-          return res
-            .status(400)
-            .json({ message: "sellerId or email is required" });
+        const { id: sellerId, email } = req.user;
 
         const query = {
           $or: [
-            ...(sellerId ? [{ "sellerInfo.userId": sellerId }] : []),
-            ...(email ? [{ "sellerInfo.email": email }] : []),
+            { "sellerInfo.userId": sellerId },
+            { "sellerInfo.email": email },
           ],
         };
 
@@ -702,11 +700,9 @@ async function run() {
     });
 
     // ── Seller: Analytics ─────────────────────────────────────────────────────
-    app.get("/api/seller/analytics", async (req, res) => {
+    app.get("/api/seller/analytics", verifyToken, async (req, res) => {
       try {
-        const { sellerId } = req.query;
-        if (!sellerId)
-          return res.status(400).json({ message: "sellerId is required" });
+        const sellerId = req.user.id;
 
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
