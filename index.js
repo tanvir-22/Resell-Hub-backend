@@ -213,7 +213,7 @@ async function run() {
           quantity: item.quantity,
           buyerInfo,
           sellerInfo: item.sellerInfo,
-          orderStatus: "Processing",
+          orderStatus: "Pending",
           paymentStatus: "pending",
           createdAt: new Date(),
         }));
@@ -332,12 +332,9 @@ async function run() {
       try {
         const { reviewerInfo, productId, rating, comment } = req.body;
         if (!reviewerInfo?.userId || !productId || !rating) {
-          return res
-            .status(400)
-            .json({
-              message:
-                "reviewerInfo.userId, productId, and rating are required",
-            });
+          return res.status(400).json({
+            message: "reviewerInfo.userId, productId, and rating are required",
+          });
         }
         const doc = {
           reviewerInfo: {
@@ -352,6 +349,37 @@ async function run() {
         };
         const result = await reviewCollection.insertOne(doc);
         res.status(201).json({ _id: result.insertedId.toString(), ...doc });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.get("/api/seller/reviews", async (req, res) => {
+      try {
+        const { email } = req.query;
+        if (!email) return res.status(400).json({ message: "email is required" });
+
+        const products = await productCollection
+          .find({ "sellerInfo.email": email }, { projection: { _id: 1, title: 1 } })
+          .toArray();
+
+        const productIds = products.map((p) => p._id.toString());
+        const titleMap = Object.fromEntries(
+          products.map((p) => [p._id.toString(), p.title])
+        );
+
+        const reviews = await reviewCollection
+          .find({ productId: { $in: productIds } })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.json(
+          reviews.map((r) => ({
+            ...r,
+            _id: r._id.toString(),
+            productTitle: titleMap[r.productId] || "",
+          }))
+        );
       } catch (err) {
         res.status(500).json({ message: err.message });
       }
