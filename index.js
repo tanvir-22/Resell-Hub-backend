@@ -385,6 +385,57 @@ async function run() {
       }
     });
 
+    const reportCollection = database.collection("reports");
+
+    // ── Reports: Submit ───────────────────────────────────────────────────────
+    app.post("/api/reports", async (req, res) => {
+      try {
+        const { productId, productTitle, reporterInfo, reason, details } = req.body;
+        const doc = {
+          productId, productTitle, reporterInfo, reason,
+          details: details || "",
+          status: "pending",
+          createdAt: new Date(),
+        };
+        const result = await reportCollection.insertOne(doc);
+        await productCollection.updateOne(
+          { _id: new objectId(productId) },
+          { $set: { reported: true } }
+        );
+        res.status(201).json({ _id: result.insertedId.toString(), ...doc });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    // ── Reports: Admin list ───────────────────────────────────────────────────
+    app.get("/api/admin/reports", async (req, res) => {
+      try {
+        const { status } = req.query;
+        const query = status && status !== "all" ? { status } : {};
+        const reports = await reportCollection
+          .find(query).sort({ createdAt: -1 }).toArray();
+        res.json(reports.map((r) => ({ ...r, _id: r._id.toString() })));
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    // ── Reports: Admin update status ──────────────────────────────────────────
+    app.patch("/api/admin/reports/:id", async (req, res) => {
+      try {
+        const result = await reportCollection.findOneAndUpdate(
+          { _id: new objectId(req.params.id) },
+          { $set: { ...req.body, updatedAt: new Date() } },
+          { returnDocument: "after" }
+        );
+        if (!result) return res.status(404).json({ message: "Report not found" });
+        res.json({ ...result, _id: result._id.toString() });
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
     const userCollection = database.collection("user");
 
     // ── Admin: Stats ────────────────────────────────────────────────────────
