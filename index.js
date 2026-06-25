@@ -686,6 +686,64 @@ async function run() {
       }
     });
 
+    // ── Public: seller profile data (no auth required) ───────────────────────
+    app.get("/api/public/seller/products", async (req, res) => {
+      try {
+        const { email, sellerId } = req.query;
+        if (!email && !sellerId) {
+          return res.status(400).json({ message: "email or sellerId required" });
+        }
+        const query = { status: "approved" };
+        const orClauses = [];
+        if (email) orClauses.push({ "sellerInfo.email": email });
+        if (sellerId) orClauses.push({ "sellerInfo.userId": sellerId });
+        if (orClauses.length > 1) query.$or = orClauses;
+        else Object.assign(query, orClauses[0]);
+
+        const products = await productCollection
+          .find(query)
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.json(products.map((p) => ({ ...p, _id: p._id.toString() })));
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
+    app.get("/api/public/seller/reviews", async (req, res) => {
+      try {
+        const { email } = req.query;
+        if (!email) return res.status(400).json({ message: "email required" });
+
+        const products = await productCollection
+          .find(
+            { "sellerInfo.email": email },
+            { projection: { _id: 1, title: 1 } },
+          )
+          .toArray();
+
+        const productIds = products.map((p) => p._id.toString());
+        const titleMap = Object.fromEntries(
+          products.map((p) => [p._id.toString(), p.title]),
+        );
+
+        const reviews = await reviewCollection
+          .find({ productId: { $in: productIds } })
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        res.json(
+          reviews.map((r) => ({
+            ...r,
+            _id: r._id.toString(),
+            productTitle: titleMap[r.productId] || "",
+          })),
+        );
+      } catch (err) {
+        res.status(500).json({ message: err.message });
+      }
+    });
+
     // ── Seller: Products ──────────────────────────────────────────────────────
     app.get("/api/seller/products", verifyToken, async (req, res) => {
       try {
