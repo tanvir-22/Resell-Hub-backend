@@ -204,7 +204,7 @@ async function run() {
     const orderCollection = database.collection("orders");
     const paymentCollection = database.collection("payments");
 
-    app.post("/api/createorders", verifyToken, async (req, res) => {
+    app.post("/api/createorders", async (req, res) => {
       try {
         const { buyerInfo, items } = req.body;
         const orders = items.map((item) => ({
@@ -228,7 +228,7 @@ async function run() {
       }
     });
 
-    app.post("/api/createpayment", verifyToken, async (req, res) => {
+    app.post("/api/createpayment", async (req, res) => {
       try {
         const { orderIds, transactionId, amount, paymentStatus } = req.body;
         const objectIds = orderIds.map((id) => new objectId(id));
